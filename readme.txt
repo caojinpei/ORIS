@@ -4,5 +4,6 @@
 - ORB暴力匹配
 - RANSAC剔除
 
-作者主页：https://cxtalk.github.io/
-知乎主页：https://www.zhihu.com/people/quanlicx
+测试环境：
+Visual Studio 2017
+opencv3.4.1
