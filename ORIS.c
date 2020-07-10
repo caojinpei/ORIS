@@ -1,0 +1,132 @@
+#include <iostream>
+#include<opencv2/opencv.hpp>
+#include "opencv2/opencv_modules.hpp"
+#include "opencv2/core.hpp"
+#include "opencv2/features2d.hpp"
+#include "opencv2/highgui.hpp"
+#include "prosac.h"
+#include<chrono>
+
+
+using namespace std;
+using namespace cv;
+
+
+
+int main()
+{
+	Mat srcimage1 = imread("1.jpg");
+	Mat srcimage2 = imread("2.jpg");
+
+	if (!srcimage1.data || !srcimage2.data)
+	{
+		cout << "图片读入有误!" << endl;
+		return -1;
+	}
+
+	//使用ORB求特征点
+	Ptr<ORB> detector = ORB::create(60000);
+	vector<KeyPoint> keypoint1, keypoint2;
+
+	//从源图像中找出特征点并存放在vector中
+	detector->detect(srcimage1, keypoint1);
+	detector->detect(srcimage2, keypoint2);
+
+	//把特征点描绘在图像上
+	Mat image_keypoint1, image_keypoint2;
+	drawKeypoints(srcimage1, keypoint1, image_keypoint1, Scalar(0, 0, 255), DrawMatchesFlags::DEFAULT);
+	drawKeypoints(srcimage2, keypoint2, image_keypoint2, Scalar(0, 255, 0), DrawMatchesFlags::DEFAULT);
+	imshow("base1", image_keypoint1);
+	imshow("base2", image_keypoint2);
+
+	//计算特征向量
+	Ptr<ORB> extractor = ORB::create();
+	Mat descriptors1, descriptors2;
+	extractor->compute(srcimage1, keypoint1, descriptors1);
+	extractor->compute(srcimage2, keypoint2, descriptors2);
+
+	Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create("BruteForce");
+	std::vector< std::vector<DMatch> > knn_matches;
+	matcher->knnMatch(descriptors1, descriptors2, knn_matches, 2);
+	cout << "总匹配对" << knn_matches.size() << endl;
+
+	Mat ma2;   //总
+	drawMatches(srcimage1, keypoint1, srcimage2, keypoint2,knn_matches, ma2);
+	imwrite("总数.jpg", ma2);
+	cout << "总匹配对" << knn_matches.size() << endl;
+
+
+	//-- Filter matches using the Lowe's ratio test
+	const float ratio_thresh = 0.8f;
+
+	std::vector<DMatch> good_matches;
+	good_matches.clear();
+	for (size_t i = 0; i < knn_matches.size(); i++)
+	{
+		if (knn_matches[i][0].distance / knn_matches[i][1].distance < ratio_thresh)
+		{
+
+			good_matches.push_back(knn_matches[i][0]);
+
+		}
+	}
+	//保存匹配对序号
+
+	cout << "优质匹配点对" << good_matches.size() << endl;
+
+	Mat majjjj2;   //googmatch
+	drawMatches(srcimage1, keypoint1, srcimage2, keypoint2, good_matches, majjjj2);
+	imwrite("优质.jpg", majjjj2);
+	cout << "优质匹配对" << good_matches.size() << endl;
+	//-- Localize the object
+
+
+	vector<KeyPoint> R_keypoint01, R_keypoint02;
+	for (size_t i = 0; i < good_matches.size(); i++)
+	{
+		R_keypoint01.push_back(keypoint1[good_matches[i].queryIdx]);
+		R_keypoint02.push_back(keypoint2[good_matches[i].trainIdx]);
+		// 这两句话的理解：R_keypoint1是要存储img01中能与img02匹配的特征点，		
+		// matches中存储了这些匹配点对的img01和img02的索引值	
+	}
+	vector<Point2f>p01, p02;
+	for (size_t i = 0; i < good_matches.size(); i++)
+	{
+		p01.push_back(R_keypoint01[i].pt);
+		p02.push_back(R_keypoint02[i].pt);
+	} 	//计算基础矩阵并剔除误匹配点	
+
+	Mat  H12;
+	H12 = findHomography(Mat(p01), Mat(p02), CV_RANSAC);
+	//重新定义关键点RR_KP和RR_matches来存储新的关键点和基础矩阵，通过RansacStatus来删除误匹配点	
+	cout << "变换矩阵为：\n" << H12 << endl << endl; //输出映射矩阵
+
+	Mat imageTransform1, imageTransform2;
+	cv::warpPerspective(srcimage1, imageTransform1, H12, Size(srcimage2.cols*1.3, srcimage2.rows*1.8));
+	//warpPerspective(image01, imageTransform2, adjustMat*homo, Size(image02.cols*1.3, image02.rows*1.8));
+	namedWindow("配准", 0);
+	imshow("配准", imageTransform1);
+	imwrite("配准.jpg", imageTransform1);
+
+
+	int dst_width = imageTransform1.cols;  //取最右点的长度为拼接图的长度
+	int dst_height = imageTransform1.rows;
+
+	Mat dst(dst_height, dst_width, CV_8UC3);
+	dst.setTo(0);
+
+
+	imageTransform1.copyTo(dst(Rect(0, 0, imageTransform1.cols, imageTransform1.rows)));
+	srcimage2.copyTo(dst(Rect(0, 0, srcimage2.cols, srcimage2.rows)));
+	namedWindow("b_dst", 0);
+	imshow("b_dst", dst);
+
+	imwrite("dst.jpg", dst);
+
+
+
+	waitKey();
+	return 0;
+}
+
+
